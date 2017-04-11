@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Sprite</title>
+    <meta charset="utf-8">
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-box-sizing: border-box;
+            -moz-box-sizing: border;
+        }
+        
+        html {
+            background: #eee;
+        }
+        
+        body {
+            position: relative;
+            width: 980px;
+            margin: 0 auto;
+        }
+        
+        canvas {
+            margin: 10px 0;
+            outline: 1px solid #d5d5d5;
+        }
+        
+        .tools {
+            position: absolute;
+            top: 9px;
+            left: -155px;
+            width: 150px;
+            height: 300px;
+            border: 1px solid #d5d5d5;
+            background: #fff;
+            overflow: hidden;
+        }
+        
+        .tools>div {
+            float: left;
+            width: 100%;
+            height: 35px;
+            line-height: 34px;
+            text-align: center;
+            cursor: pointer;
+            color: #5d5d5d;
+            font-weight: bold;
+            border-bottom: 1px solid #d5d5d5;
+            font-size: 0.95em;
+            user-select: none;
+            transition: all 0.2s;
+        }
+        
+        .tools>div:hover {
+            background: #ECF9FF;
+            color: #333;
+        }
+        
+        .tools>div:active {
+            background: #C7E9FB;
+        }
+        
+        .tools>div.half {
+            width: 50%;
+        }
+        
+        .tools>div.half:nth-child(2n-1) {
+            border-right: 1px solid #d5d5d5;
+        }
+        
+        .clear-wrap:after {
+            content: "";
+            clear: both;
+            display: block;
+        }
+        
+        #float-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+        
+        textarea {
+            width: 100%;
+            height: 150px;
+            /* border:1px solid #d5d5d5;*/
+            border: 0;
+            padding: 5px;
+            font-size: 1em;
+            background: rgba(200, 200, 200, 0.2);
+            transition: all 0.2s;
+        }
+        textarea:focus {
+            outline: 0;
+            padding: 10px;
+            font-size: 1.3em;
+            background: rgba(255, 223, 200, 0.5);
+        }
+    </style>
+</head>
+
+<body>
+    <!--
+    <div class="tools">
+        <div class="half"></div>
+        <div class="half"></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div class="info">검색</div>
+    </div>
+    -->
+    <section id="container"></section>
+    <script>
+        /* canvas 선언 및 body 태그에 추가 */
+        var canvas = document.createElement('canvas');
+        var ctx = canvas.getContext('2d');
+        canvas.width = 980;
+        canvas.height = 900;
+
+        document.getElementById('container').appendChild(canvas);
+
+        /* float canvas */
+        /* css absoulute 속성으로 메인 캔버스 위에 띄운다 */
+        var floatCanvas = document.createElement('canvas');
+        var fctx = floatCanvas.getContext('2d');
+        floatCanvas.id = 'float-canvas';
+        floatCanvas.width = 980;
+        floatCanvas.height = 900;
+
+        document.getElementById('container').appendChild(floatCanvas);
+
+        var imgStack = [];
+        var boundingStack = []; // canvas collision
+
+        function loadImage(src, callback) {
+            var img = new Image();
+            img.src = src;
+
+            img.addEventListener('load', function () {
+                imgStack.push(this);
+                if (typeof callback === 'function') {
+                    callback(this);
+                }
+                return 0;
+            });
+        }
+        function random(a, b) {
+            return Math.floor((Math.random() * (b - a + 1)) + a);
+        }
+        function attachImage(img) {
+            var x = 0, y = 0;
+            applyTransform();
+            ctx.drawImage(img, x, y, img.width, img.height);
+
+            boundingStack.push({
+                imgData: img,
+                x: x,
+                y: y,
+                width: img.width,
+                height: img.height
+            });
+        }
+        function updateCanvas() {
+            ctx.save();
+            ctxClear();
+            for (var len = boundingStack.length, i = 0; i < len; i++) {
+                var b = boundingStack[i];
+                ctx.drawImage(b.imgData, b.x, b.y, b.width, b.height);
+            }
+            ctx.restore();
+        }
+        loadImage('http://i.imgur.com/v4Xev9I.png', attachImage);
+        loadImage('http://i.imgur.com/jL0tnUu.jpg', attachImage);
+        loadImage('http://i.imgur.com/BB6fHli.png', attachImage);
+        loadImage('http://i.imgur.com/ij2z8nU.jpg', attachImage);
+        loadImage('http://i.imgur.com/XXeZjEd.jpg', attachImage);
+        loadImage('http://i.imgur.com/XXeZjEd.jpg', attachImage);
+        loadImage('http://imgur.com/gallery/elYuV', attachImage);
+        loadImage('http://i.imgur.com/lUTww9p.jpg', attachImage);
+        loadImage('http://i.imgur.com/eNhZmCc.jpg', attachImage);
+
+        var transform = {
+            scale: {
+                x: 1,
+                y: 1
+            },
+            translate: {
+                x: 0,
+                y: 0
+            }
+        };
+
+        function pointInRect(pos, rect) {
+            var px = (pos.x - transform.translate.x) * (1 / transform.scale.x), py = (pos.y - transform.translate.y) * (1 / transform.scale.y);
+            return px > rect.x && py > rect.y && px < rect.x + rect.width && py < rect.y + rect.height;
+        }
+        /* e : 마우스 이벤트 */
+        /* arguments[1] : 스타일 및 이벤트판정 callback (return 값이 -1 이면 이후 작업에서 빠짐)*/
+        /*                매개변수로 현재 이벤트가 활성화된 객체정보를 넘겨줌. */
+        /*                style callback*/
+        /* arguments[2] : 최종 callback */
+
+        function pointInElement(e) {
+            var pos = {
+                x: e.offsetX,
+                y: e.offsetY
+            };
+            fctx.save();
+            for (var len = boundingStack.length - 1, i = len; i >= 0; i--) {
+                var boundingbox = boundingStack[i];
+                var activebox;
+                if (pointInRect(pos, boundingbox)) {
+                    activebox = boundingbox;
+                    if (typeof arguments[1] === 'function') {
+                        var t = arguments[1](boundingbox, pos, i);
+                        if (t === -1) {
+                            break;
+                        }
+                    }
+                    fctxClear();
+                    fctx.fillRect(boundingbox.x, boundingbox.y, boundingbox.width, boundingbox.height);
+
+                    for (var j = i + 1; j <= len; j++) {
+                        var dbx = boundingStack[j];
+                        fctx.clearRect(dbx.x, dbx.y, dbx.width, dbx.height);
+                    }
+                    break;
+                }
+            }
+            if (typeof arguments[2] === 'function') {
+                arguments[2](activebox, pos);
+            }
+            fctx.restore();
+            return 0;
+        }
+
+        var active = {
+            mousemove: undefined,
+            mousedown: undefined
+        };
+        var previousMousemovePos;
+
+        function dragLogic(b, pos) {
+            var b = b ? b : active.mousedown;
+            var pPos = previousMousemovePos;
+            var vec = {
+                x: pos.x - pPos.x,
+                y: pos.y - pPos.y
+            };
+
+            var speed = 1 / transform.scale.x;
+            b.x += vec.x * speed;
+            b.y += vec.y * speed;
+
+            if (b.x < 0) {
+                b.x = 0;
+            }
+            if (b.y < 0) {
+                b.y = 0;
+            }
+
+            updateCanvas();
+        }
+        canvas.addEventListener('mousemove', function (e) {
+            var pos = {
+                x: e.offsetX,
+                y: e.offsetY
+            };
+            if (active.mousedown) {
+                dragLogic(active.mousedown, pos);
+            }
+
+            pointInElement(e, function (b) {
+                active.mousemove = b;
+
+                if (active.mousedown) {
+                    fctx.fillStyle = "rgba(0,0,255,0.2)";
+                } else {
+                    active.mousedown = undefined;
+                    fctx.fillStyle = "rgba(0,0,255,0.1)";
+                }
+            }, function (b) {
+                if (!b) {
+                    active.mousemove = undefined;
+                    fctxClear();
+                }
+            });
+
+            previousMousemovePos = pos;
+        });
+        canvas.addEventListener('mousedown', function (e) {
+            pointInElement(e, function (b, pos, index) {
+                active.mousedown = b;
+                active.mousedown.pos = pos;
+
+                boundingStack.splice(index, 1)[0];
+                boundingStack.push(b);
+
+                updateCanvas();
+
+                fctx.fillStyle = "rgba(0,0,255,0.2)";
+            });
+        });
+        canvas.addEventListener('mouseup', function (e) {
+            active.mousedown = undefined;
+        });
+        canvas.addEventListener('mouseout', function () {
+            fctxClear();
+            active.mousedown = undefined;
+            active.mousemove = undefined;
+        });
+        canvas.addEventListener('mousewheel', function (e) {
+            var val = e.deltaY > 0 ? 0.5 : 2;
+            var tx = transform.scale.x * val;
+            var ty = transform.scale.y * val;
+
+            if (tx < 0.0625 || ty < 0.0625 || tx > 32 || ty > 32) {
+                return;
+            }
+            transform.scale.x = tx;
+            transform.scale.y = ty;
+
+            applyTransform();
+
+            updateCanvas();
+
+            pointInElement(e, function () {
+                fctx.fillStyle = "rgba(0,0,255,0.1)";
+            }, function (b) {
+                if (!b) {
+                    fctxClear();
+                }
+            });
+        });
+
+        window.addEventListener('keydown', function (e) {
+            switch (e.keyCode) {
+                case 65:
+                    transform.translate.x += 5;
+                    break;
+                case 83:
+                    transform.translate.y -= 5;
+                    break;
+                case 68:
+                    transform.translate.x -= 5;
+                    break;
+                case 87:
+                    transform.translate.y += 5;
+                    break;
+            }
+            if (transform.translate.x > 0) {
+                transform.translate.x = 0;
+            }
+            if (transform.translate.y < -2500) {
+                transform.translate.y = -2500;
+            }
+            applyTransform();
+            pointInElement(e, function () {
+                fctx.fillStyle = "rgba(0,0,255,0.1)";
+            }, function (b) {
+                if (!b) {
+                    fctxClear();
+                }
+            });
+            updateCanvas();
+        });
+
+        function applyTransform() {
+            ctx.setTransform(transform.scale.x, 0, 0, transform.scale.y, transform.translate.x, transform.translate.y);
+            fctx.setTransform(transform.scale.x, 0, 0, transform.scale.y, transform.translate.x, transform.translate.y);
+        }
+        function fctxClear() {
+            fctx.clearRect(-1000, -1000, 100000, 100000)
+        }
+        function ctxClear() {
+            ctx.clearRect(-1000, -1000, 100000, 100000)
+        }
+    </script>
+</body>
+
+</html>
